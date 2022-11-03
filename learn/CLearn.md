@@ -249,6 +249,7 @@ char* str ="Hello World";
 * const修饰的指针类型,在忽略变量类型之后,看`const`右边紧跟的是`*`还是变量名,  
 	* 是`*`表示`*p`不能被修改,`p`能修改  
 	* 是`p`表示`p`不能被修改,`*p`能修改  
+
 **常量指针:指针指向的内容是常量**  
 ```c
 const int* p;	//const *p
@@ -263,6 +264,6 @@ int* const p = &x;	//* const p
 ```
 **指向常量的指针常量**  
 ```c
-const int* const p = & x;	//const * const p
+const int* const p = &x;    //const * const p
 //既不能改变p的值，也不能改变p所指向的地址的值,即*p的值。
 ```
