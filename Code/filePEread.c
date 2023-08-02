@@ -82,7 +82,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
     }
 
     //DOS头加上DOS头偏移找到NT头
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
     //判断软件的IMAGE_NT_SIGNATURE
     if (pN32h->Signature != IMAGE_NT_SIGNATURE){
         printf("Not a valid PE file! Error by NT header!\n");
@@ -91,8 +91,8 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
 
     //指向PE头
     pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
-    printf("Size of OptionalHeader: %d",pFh->SizeOfOptionalHeader);
-    printf("Size of sections: %d",pFh->NumberOfSections);
+    printf("Size of OptionalHeader: %d\n",pFh->SizeOfOptionalHeader);
+    printf("Size of sections: %d\n",pFh->NumberOfSections);
     //判断软件是64位还是32位
     // if (pFh->Machine == IMAGE_FILE_MACHINE_AMD64){
     //     pO64h = (PIMAGE_OPTIONAL_HEADER64)&(pN32h->OptionalHeader);
@@ -127,17 +127,21 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
         return 0;
     }
 
+    //统计复制到pImageBuffer的大小
+    DWORD Size_memcpy_Count = 0;
     memset(*pImageBuffer,0,Size_Image);
     memcpy(*pImageBuffer,pFileBuffer,Size_Header);
+    Size_memcpy_Count += Size_Header;
+    printf("Count + Size_Header: %d\n",Size_memcpy_Count);
 
 
     //循环读取pFileImage中已加载的节表的数据 并加载到pImageBuffer中
     //节表固定40(0x28)字节 节的数量为pFh->NumberOfSections
     for (int i = 1,j = 0; i <= pFh->NumberOfSections; i++){
         //获取第i个节表在pFileImage中的位置
-        pSh = (PIMAGE_SECTION_HEADER)((DWORD64)pN32h+sizeof(IMAGE_FILE_HEADER)+Size_Header+j);
-        printf("%d section of VirtualAddrs: 0x%x",i,pSh->VirtualAddress);
-        printf("%d section of VirtualAddrs: 0x%x",i,pSh->PointerToRawData);
+        pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader +j);
+        printf("%d section of VirtualAddrs: 0x%x\n",i,pSh->VirtualAddress);
+        printf("%d section of PointerToRawData: 0x%x\n",i,pSh->PointerToRawData);
         //memcpy需要两个void*类型的参数 使用LPVOID强制转换
         //Dst地址是将已申请的*pImageBuffer地址强转为DWORD64类型 *pImageBuffer为已申请的内存地址
         //再加上pSh->VirtualAddress 即为应在内存中的地址
@@ -145,11 +149,11 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
         //Src地址是将已加载到内存中的pFileBuffer的地址强转为DWORD64类型 并加上pSh->PointerToRawDate
         //PointerToRawDate是该节在文件中的偏移 即为该节在文件中的初始位置
         //需要复制的大小为pSh->SizeOfRawData 即为节在文件中对齐之后的尺寸
-        memcpy((LPVOID)((DWORD64)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD64)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
-        
+        memcpy((LPVOID)((DWORD)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
+        Size_memcpy_Count += pSh->SizeOfRawData;
         j+=sizeof(IMAGE_SECTION_HEADER);
     }
-    return Size_Image;
+    return Size_memcpy_Count;
 }
 
 //**************************************************************************
@@ -192,16 +196,18 @@ int main(int argc, char const *argv[])
     LPVOID NewFile = NULL;   
 
     //文件路径
-    LPSTR FilePath ="D:\\Tools\\crack reverse\\Hashyuan.exe";
+    LPSTR FilePath ="D:\\justdo\\A\\PETool.exe";
 
     //返回的文件大小
     DWORD FileSize;
+    DWORD FileCopySize;
 
     //传入文件路径和void**类型的待申请地址空间
-    FileSize= ReadPEFile(FilePath,&OrginFile);
-    printf("writed file %d betys\n",FileSize);
-
-    CopyFileBufferToImageBuffer(OrginFile,&FileImage);
+    FileSize = ReadPEFile(FilePath,&OrginFile);
+    printf("writed file to buffer %d betys\n",FileSize);
+    printf("*********************************************************\n");
+    FileCopySize = CopyFileBufferToImageBuffer(OrginFile,&FileImage);
+    printf("Copy file to MemoryImage %d bytes\n",FileCopySize);
 
     free(OrginFile);
     free(FileImage);
