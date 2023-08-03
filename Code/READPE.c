@@ -39,7 +39,7 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
         printf("Can`t malloc filebuffer!\n");
         fclose(pfile);
     }
-    printf("malloc %d bytes\n",fileSize);
+    printf("FileBuffer need malloc %d bytes\n",fileSize);
 
     //写入大小
     DWORD wriSize;
@@ -68,10 +68,8 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
 DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer){
     PIMAGE_DOS_HEADER pDh = NULL;
     PIMAGE_NT_HEADERS pN32h = NULL;
-    // PIMAGE_NT_HEADERS64 pN64h = NULL;
     PIMAGE_FILE_HEADER pFh = NULL;
     PIMAGE_OPTIONAL_HEADER pO32h = NULL;
-    // PIMAGE_OPTIONAL_HEADER64 pO64h = NULL;
     PIMAGE_SECTION_HEADER pSh = NULL;
 
     //将FileBuffer指向DOS头 
@@ -82,7 +80,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
     }
 
     //DOS头加上DOS头偏移找到NT头
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
     //判断软件的IMAGE_NT_SIGNATURE
     if (pN32h->Signature != IMAGE_NT_SIGNATURE){
         printf("Not a valid PE file! Error by NT header!\n");
@@ -132,14 +130,13 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
     memset(*pImageBuffer,0,Size_Image);
     memcpy(*pImageBuffer,pFileBuffer,Size_Header);
     Size_memcpy_Count += Size_Header;
-    printf("Count + Size_Header: %d\n",Size_memcpy_Count);
 
 
     //循环读取pFileImage中已加载的节表的数据 并加载到pImageBuffer中
     //节表固定40(0x28)字节 节的数量为pFh->NumberOfSections
-    for (int i = 1,j = 0; i <= pFh->NumberOfSections; i++){
+    for (int i = 0,j = 0; i < pFh->NumberOfSections; i++){
         //获取第i个节表在pFileImage中的位置
-        pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader +j);
+        pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader +j);
         printf("%d section of VirtualAddrs: 0x%x\n",i,pSh->VirtualAddress);
         printf("%d section of PointerToRawData: 0x%x\n",i,pSh->PointerToRawData);
         //memcpy需要两个void*类型的参数 使用LPVOID强制转换
@@ -149,7 +146,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
         //Src地址是将已加载到内存中的pFileBuffer的地址强转为DWORD64类型 并加上pSh->PointerToRawDate
         //PointerToRawDate是该节在文件中的偏移 即为该节在文件中的初始位置
         //需要复制的大小为pSh->SizeOfRawData 即为节在文件中对齐之后的尺寸
-        memcpy((LPVOID)((DWORD64)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD64)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
+        memcpy((LPVOID)((DWORD)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
         Size_memcpy_Count += pSh->SizeOfRawData;
         j+=sizeof(IMAGE_SECTION_HEADER);
     }
@@ -173,13 +170,13 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
     PIMAGE_SECTION_HEADER pSh_last = NULL;
 
     pDh = (PIMAGE_DOS_HEADER)pImageBuffer;
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
     pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     //*************************************************************
     //通过最后一个节的PointerToRawData(文件中偏移)+SizeOfRawData(对齐后在文件中的大小)
     //计算出NewBuffer所需要的大小
-    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     //计算最后一个节的地址
     pSh_last = pSh + (pFh->NumberOfSections-1);
     DWORD NewBuff_Size = pSh_last->PointerToRawData + pSh_last->SizeOfRawData;
@@ -199,20 +196,23 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
     //复制全部头和节表到NewBuffer
     memcpy(*pNewBuffer, pImageBuffer, Size_Header);
     //统计复制的文件大小
-    DWORD Size_memcpy_Count;
-    Size_memcpy_Count += Size_Header;
+    DWORD Copy_Count = 0;
+    Copy_Count += Size_Header;
+    printf("Size_memcpy_Count: %d\n",Copy_Count);
 
     //循环复制节的数据到 Newbuffer
     for (size_t i = 0; i < pFh->NumberOfSections; i++){
         DWORD Size_Sections = pSh->SizeOfRawData;
-        memcpy((LPVOID)((DWORD64)*pNewBuffer + (pSh->PointerToRawData)), (LPVOID)((DWORD64)pImageBuffer + pSh->VirtualAddress), Size_Sections);
+        printf("%d Section of SizeOfRawData: %x\n",i,Size_Sections);
+        printf("Copy_Count: %X\n",Copy_Count);
+        memcpy((LPVOID)((DWORD)*pNewBuffer + (pSh->PointerToRawData)), (LPVOID)((DWORD)pImageBuffer + pSh->VirtualAddress), Size_Sections);
+        Copy_Count += Size_Sections;
         pSh ++;
-        Size_memcpy_Count += Size_Sections;
+        
     }
     
-    return Size_memcpy_Count;
+    return Copy_Count;
 }
-
 
 //**************************************************************************
 //MemeryTOFile:将内存中的数据复制到文件
@@ -223,7 +223,24 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
 //返回值说明：
 //读取失败返回0  否则返回复制的大小
 //**************************************************************************
-BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN size_t size,OUT LPSTR lpszFile);
+BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN size_t Nsize,OUT LPSTR lpszFile){
+    FILE* fp = NULL;
+    if(!(fp = fopen(lpszFile,"wb"))){
+        printf("Can`t open the File!\n");
+        return 0;
+    }
+
+    DWORD Copy_Size;
+    Copy_Size = fwrite(pMemBuffer,sizeof(char),Nsize,fp);
+    if(!Copy_Size){
+        printf("Can`t Write the File!\n");
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    return Copy_Size;
+
+}
 
 
 //**************************************************************************
@@ -234,37 +251,112 @@ BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN size_t size,OUT LPSTR lpszFile);
 //返回值说明：
 //返回转换后的FOA的值  如果失败返回0
 //**************************************************************************
-DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva);
+DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_last = NULL;
 
-int main(int argc, char const *argv[])
-{
+    pDh = (PIMAGE_DOS_HEADER)pFileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    
+    DWORD NumOfSections = pFh->NumberOfSections;
+
+    //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
+    //如果两者相等的话 说明对其方式是一样的 直接返回
+    if(pSh->PointerToRawData == pSh->VirtualAddress){
+        printf("PointerToRawData == VirtualAddress");
+        return dwRva;
+    }
+
+    DWORD FOA = 0;
+    for (size_t i = 0; i < NumOfSections ; i++){
+        if ((dwRva > pSh->VirtualAddress) && (dwRva <(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
+            FOA = pSh->PointerToRawData + (dwRva - pSh->VirtualAddress);
+            break;
+        }
+        pSh ++;
+        printf("RAV to FOA is in %d Section\n",i+1);
+    }
+    return FOA;
+}
+
+int fun(){
     LPVOID OrginFile = NULL;//FileBuffer
     LPVOID FileImage = NULL;//ImageBuffer
     LPVOID NewFile = NULL;//NewBuffer
 
     //文件路径
-    // LPSTR FilePath ="D:\\justdo\\A\\PETool.exe";
-    LPSTR FilePath ="D:\\Tools\\crack reverse\\Hashyuan.exe";
+    LPSTR FilePath ="D:\\justdo\\A\\ClickRun.exe";
+    // LPSTR FilePath ="D:\\Tools\\crack reverse\\Hashyuan.exe";
+    LPSTR FileName = "D:\\justdo\\A\\ClickRun_Copy.exe";
 
     //返回的文件大小
     DWORD FileSize;
     DWORD FileCopySize;
     DWORD NewFileCopySize;
+    DWORD WriteSize;
 
     //传入文件路径和void**类型的待申请地址空间
-    FileSize = ReadPEFile(FilePath,&OrginFile);
-    printf("writed file to buffer %d betys\n",FileSize);
     printf("*********************************************************\n");
+    printf("ReadPEFile:\n");
+    FileSize = ReadPEFile(FilePath,&OrginFile);
+    printf("Writed file to buffer %d betys\n",FileSize);
+    printf("*********************************************************\n");
+    printf("CopyFileBufferToImageBuffer:\n");
     FileCopySize = CopyFileBufferToImageBuffer(OrginFile,&FileImage);
     printf("Copy file to MemoryImage %d bytes\n",FileCopySize);
     printf("*********************************************************\n");
+    printf("CopyImageBufferToNewBuffer:\n");
     NewFileCopySize = CopyImageBufferToNewBuffer(FileImage,&NewFile);
     printf("Copy ImageBuffer to NewBuffer %d bytes\n",NewFileCopySize);
     printf("*********************************************************\n");
-
+    printf("MemeryTOFile:\n");
+    WriteSize = MemeryTOFile(NewFile,NewFileCopySize,FileName);
+    printf("Write NewBuffer to DiskFile %d bytes\n",WriteSize);
+    printf("*********************************************************\n");
 
     free(OrginFile);
     free(FileImage);
     free(NewFile);
+    return 0;
+}
+
+DWORD Test(){
+    LPVOID OrginFile = NULL;//FileBuffer
+    LPVOID FileImage = NULL;//ImageBuffer
+    // LPVOID NewFile = NULL;//NewBuffer
+
+    //文件路径
+    LPSTR FilePath ="E:\\User\\Documents\\learn\\vs_learn\\C_Test\\word_test\\testod.exe";
+
+    //返回的文件大小
+    DWORD FileSize;
+    DWORD FileCopySize;
+    // DWORD NewFileCopySize;
+    // DWORD WriteSize;
+    printf("*********************************************************\n");
+    printf("ReadPEFile:\n");
+    FileSize = ReadPEFile(FilePath,&OrginFile);
+    printf("Writed file to buffer %d betys\n",FileSize);
+    printf("*********************************************************\n");
+
+
+    DWORD RAV =0x4004;
+    DWORD FOA;
+    FOA = RvaToFileOffset(OrginFile,RAV);
+    printf("FOA: %x",FOA);
+
+}
+
+int main(int argc, char const *argv[])
+{
+    // fun();
+    Test();
     return 0;
 }
