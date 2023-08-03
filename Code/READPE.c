@@ -38,12 +38,13 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
     if(!(*pFileBuffer = malloc(fileSize))){
         printf("Can`t malloc filebuffer!\n");
         fclose(pfile);
+        return 0;
     }
     printf("FileBuffer need malloc %d bytes\n",fileSize);
 
     //写入大小
     DWORD wriSize;
-    wriSize = fread(*pFileBuffer,1,fileSize,pfile);
+    wriSize = fread(*pFileBuffer,fileSize,1,pfile);
     if (!wriSize){
         printf("Can`t copy file to buff!\n");
         fclose(pfile);
@@ -80,7 +81,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
     }
 
     //DOS头加上DOS头偏移找到NT头
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
     //判断软件的IMAGE_NT_SIGNATURE
     if (pN32h->Signature != IMAGE_NT_SIGNATURE){
         printf("Not a valid PE file! Error by NT header!\n");
@@ -136,7 +137,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
     //节表固定40(0x28)字节 节的数量为pFh->NumberOfSections
     for (int i = 0,j = 0; i < pFh->NumberOfSections; i++){
         //获取第i个节表在pFileImage中的位置
-        pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader +j);
+        pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader +j);
         printf("%d section of VirtualAddrs: 0x%x\n",i,pSh->VirtualAddress);
         printf("%d section of PointerToRawData: 0x%x\n",i,pSh->PointerToRawData);
         //memcpy需要两个void*类型的参数 使用LPVOID强制转换
@@ -146,7 +147,7 @@ DWORD CopyFileBufferToImageBuffer(IN LPVOID pFileBuffer,OUT LPVOID* pImageBuffer
         //Src地址是将已加载到内存中的pFileBuffer的地址强转为DWORD64类型 并加上pSh->PointerToRawDate
         //PointerToRawDate是该节在文件中的偏移 即为该节在文件中的初始位置
         //需要复制的大小为pSh->SizeOfRawData 即为节在文件中对齐之后的尺寸
-        memcpy((LPVOID)((DWORD)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
+        memcpy((LPVOID)((DWORD64)(*pImageBuffer)+pSh->VirtualAddress),(LPVOID)((DWORD64)pFileBuffer+pSh->PointerToRawData),pSh->SizeOfRawData);
         Size_memcpy_Count += pSh->SizeOfRawData;
         j+=sizeof(IMAGE_SECTION_HEADER);
     }
@@ -170,13 +171,13 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
     PIMAGE_SECTION_HEADER pSh_last = NULL;
 
     pDh = (PIMAGE_DOS_HEADER)pImageBuffer;
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
     pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     //*************************************************************
     //通过最后一个节的PointerToRawData(文件中偏移)+SizeOfRawData(对齐后在文件中的大小)
     //计算出NewBuffer所需要的大小
-    pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     //计算最后一个节的地址
     pSh_last = pSh + (pFh->NumberOfSections-1);
     DWORD NewBuff_Size = pSh_last->PointerToRawData + pSh_last->SizeOfRawData;
@@ -205,7 +206,7 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
         DWORD Size_Sections = pSh->SizeOfRawData;
         printf("%d Section of SizeOfRawData: %x\n",i,Size_Sections);
         printf("Copy_Count: %X\n",Copy_Count);
-        memcpy((LPVOID)((DWORD)*pNewBuffer + (pSh->PointerToRawData)), (LPVOID)((DWORD)pImageBuffer + pSh->VirtualAddress), Size_Sections);
+        memcpy((LPVOID)((DWORD64)*pNewBuffer + (pSh->PointerToRawData)), (LPVOID)((DWORD64)pImageBuffer + pSh->VirtualAddress), Size_Sections);
         Copy_Count += Size_Sections;
         pSh ++;
         
@@ -231,7 +232,7 @@ BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN size_t Nsize,OUT LPSTR lpszFile){
     }
 
     DWORD Copy_Size;
-    Copy_Size = fwrite(pMemBuffer,sizeof(char),Nsize,fp);
+    Copy_Size = fwrite(pMemBuffer,Nsize,1,fp);
     if(!Copy_Size){
         printf("Can`t Write the File!\n");
         fclose(fp);
@@ -260,10 +261,10 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
     PIMAGE_SECTION_HEADER pSh_last = NULL;
 
     pDh = (PIMAGE_DOS_HEADER)pFileBuffer;
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD)pDh + pDh->e_lfanew);
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
     pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
-    pSh = (PIMAGE_SECTION_HEADER)((DWORD)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     
     DWORD NumOfSections = pFh->NumberOfSections;
 
