@@ -44,7 +44,7 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
 
     //写入大小
     DWORD wriSize;
-    wriSize = fread(*pFileBuffer,fileSize,1,pfile);
+    wriSize = fread(*pFileBuffer,1,fileSize,pfile);
     if (!wriSize){
         printf("Can`t copy file to buff!\n");
         fclose(pfile);
@@ -232,7 +232,7 @@ BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN size_t Nsize,OUT LPSTR lpszFile){
     }
 
     DWORD Copy_Size;
-    Copy_Size = fwrite(pMemBuffer,Nsize,1,fp);
+    Copy_Size = fwrite(pMemBuffer,1,Nsize,fp);
     if(!Copy_Size){
         printf("Can`t Write the File!\n");
         fclose(fp);
@@ -287,6 +287,97 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
     return FOA;
 }
 
+BOOL AddShellCode(){
+
+    //SHellCode代码 执行一个弹窗
+    BYTE ShellCode[] = {
+    0x41,0xB9,0x00,0x00,0x00,0x00,
+    0x41,0xB8,0x00,0x00,0x00,0x00,
+    0xBA,0x00,0x00,0x00,0x00,
+    0xB9,0x00,0x00,0x00,0x00,//22
+    0xe8,0x00,0x00,0x00,0x00,//27
+    0xe9,0x00,0x00,0x00,0x00,
+    };
+
+    PBYTE CodeBegin = NULL;
+
+    //需要执行的MesagesBox在机器中的地址
+    DWORD ProgrameAddress = 0x76948180;
+    //ShellCode的长度
+    DWORD Lenshellcode = sizeof(ShellCode);
+
+    LPVOID OrginFile = NULL;//FileBuffer
+    LPVOID FileImage = NULL;//ImageBuffer
+    LPVOID NewFile = NULL;//NewBuffer
+
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+
+
+    DWORD FileSize;
+    DWORD FileCopySize;
+    DWORD NewFileCopySize;
+    DWORD WriteSize;
+    
+    //需要写入的文件和写入ShellCode之后的文件
+    LPSTR InFilePath ="D:\\Tools\\crack reverse\\TestFloder\\PETool.exe";
+    LPSTR OutFilePath = "D:\\Tools\\crack reverse\\TestFloder\\PETool_sc3.exe";
+
+    //加载需要写入的文件
+    FileSize = ReadPEFile(InFilePath,&OrginFile);
+    //将写入的文件拓展为内存中的状态
+    FileCopySize = CopyFileBufferToImageBuffer(OrginFile,&FileImage);
+
+    pDh = (PIMAGE_DOS_HEADER)FileImage;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+
+    //判断第一个节是否有空间能存下ShellCode的大小
+    //文件中对齐之后的节的大小 - 内存中未对齐前的节的大小(内存中的实际大小)
+    if ((pSh->SizeOfRawData - pSh->Misc.VirtualSize) < Lenshellcode){
+        printf("Can`t enough write shellcode!\n");
+        free(OrginFile);
+        free(FileImage);
+        return FALSE;
+    }
+    
+    //第一个节在内存中最后的有数据的位置
+    //内存中的位置 + 第一个节的偏移值 + 第一个节内存中未对齐前的大小
+    CodeBegin = (PBYTE)((DWORD64)FileImage + pSh->VirtualAddress + pSh->Misc.VirtualSize);
+    printf("CodeBegin_Address: %x\n",CodeBegin);
+    printf("ImageBase_Address: %x\n",pO32h->ImageBase );
+    printf("FileImage_Address: %x\n",(DWORD64)FileImage);
+    memcpy(CodeBegin,ShellCode,Lenshellcode);
+
+    //修正E8
+    //E8Call = 需要执行的程序的地址 - ImageBase(实际运行的时候的内存地址) + (ShellCode中E9的起始位置 - 内存中的位置)
+    //E8Call = 需要执行的程序的地址 - ImageBase + E8Call在内存中的相对偏移
+    DWORD E8Call = ProgrameAddress - (pO32h->ImageBase + ((DWORD64)((CodeBegin + 0x1b) -(DWORD64)FileImage)));
+    *(PDWORD)(CodeBegin + 0x17) = E8Call;
+    printf("E8Call:%x\n",E8Call);
+    //修正E9
+    DWORD E9Call = (pO32h->ImageBase + pO32h->AddressOfEntryPoint) - (pO32h->ImageBase + (DWORD64)((CodeBegin + Lenshellcode) - (DWORD64)FileImage));
+    *(PDWORD)(CodeBegin + 0x1c) = E9Call;
+    //修正OEP
+    pO32h->AddressOfEntryPoint = (DWORD64)CodeBegin - (DWORD64)FileImage;
+
+    NewFileCopySize = CopyImageBufferToNewBuffer(FileImage,&NewFile);
+
+    WriteSize = MemeryTOFile(NewFile,NewFileCopySize,OutFilePath);
+
+    free(OrginFile);
+    free(FileImage);
+    free(NewFile);
+    return TRUE;
+
+}
+
 int fun(){
     LPVOID OrginFile = NULL;//FileBuffer
     LPVOID FileImage = NULL;//ImageBuffer
@@ -334,7 +425,8 @@ DWORD Test(){
     // LPVOID NewFile = NULL;//NewBuffer
 
     //文件路径
-    LPSTR FilePath ="E:\\User\\Documents\\learn\\vs_learn\\C_Test\\word_test\\testod.exe";
+    // LPSTR FilePath ="E:\\User\\Documents\\learn\\vs_learn\\C_Test\\word_test\\testod.exe";
+    LPSTR FilePath ="D:\\User\\Documents\\learn\\VSCode\\CLanguage\\cTest\\src\\leaen\\testod.exe";
 
     //返回的文件大小
     DWORD FileSize;
@@ -358,6 +450,7 @@ DWORD Test(){
 int main(int argc, char const *argv[])
 {
     // fun();
-    Test();
+    // Test();
+    AddShellCode();
     return 0;
 }
