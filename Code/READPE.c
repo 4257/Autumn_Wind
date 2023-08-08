@@ -205,9 +205,9 @@ DWORD CopyImageBufferToNewBuffer(IN LPVOID pImageBuffer,OUT LPVOID* pNewBuffer){
     for (size_t i = 0; i < pFh->NumberOfSections; i++){
         DWORD Size_Sections = pSh->SizeOfRawData;
         printf("%d Section of SizeOfRawData: %x\n",i,Size_Sections);
-        printf("Copy_Count: %X\n",Copy_Count);
         memcpy((LPVOID)((DWORD64)*pNewBuffer + (pSh->PointerToRawData)), (LPVOID)((DWORD64)pImageBuffer + pSh->VirtualAddress), Size_Sections);
         Copy_Count += Size_Sections;
+        printf("Copy_Count: %X\n",Copy_Count);
         pSh ++;
         
     }
@@ -289,20 +289,30 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
 BOOL AddShellCode(){
 
-    //SHellCode代码 执行一个弹窗
+    // SHellCode代码 执行一个弹窗
     BYTE ShellCode[] = {
-    0x41,0xB9,0x00,0x00,0x00,0x00,
-    0x41,0xB8,0x00,0x00,0x00,0x00,
-    0xBA,0x00,0x00,0x00,0x00,
-    0xB9,0x00,0x00,0x00,0x00,//22
-    0xe8,0x00,0x00,0x00,0x00,//27
+    0x6a,0x00,0x6a,0x00,0x6a,0x00,0x6a,0x00,//8
+    0xe8,0x00,0x00,0x00,0x00,//13
     0xe9,0x00,0x00,0x00,0x00,
     };
+
+    //  BYTE ShellCode[] = {
+    // 0xC7,0x44,0x24,0x0C,00,00,00,00,//8
+    // 0xC7,0x44,0x24,0x08,00,00,00,00,//16
+    // 0xC7,0x44,0x24,0x04,00,00,00,00,//24
+    // 0xC7,0x44,0x24,00,00,00,00,00,//32
+    // 0xe8,0x01,0x02,0x03,0x04,//37
+    // 0xe9,0x05,0x06,0x07,0x08
+    // };
+
+    BYTE E8Bit = 0x9;    //修正E8指令的位置
+    BYTE E9Bit = 0xe;    //修正E9指令位置
+    BYTE E9addres = 0xd; //E8的下一条地址（E9）的位置
 
     PBYTE CodeBegin = NULL;
 
     //需要执行的MesagesBox在机器中的地址
-    DWORD ProgrameAddress = 0x76948180;
+    DWORD ProgrameAddress = 0x74E5A790;
     //ShellCode的长度
     DWORD Lenshellcode = sizeof(ShellCode);
 
@@ -315,6 +325,7 @@ BOOL AddShellCode(){
     PIMAGE_NT_HEADERS pN32h = NULL;
     PIMAGE_FILE_HEADER pFh = NULL;
     PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
     PIMAGE_SECTION_HEADER pSh = NULL;
 
 
@@ -324,8 +335,8 @@ BOOL AddShellCode(){
     DWORD WriteSize;
     
     //需要写入的文件和写入ShellCode之后的文件
-    LPSTR InFilePath ="D:\\Tools\\crack reverse\\TestFloder\\PETool.exe";
-    LPSTR OutFilePath = "D:\\Tools\\crack reverse\\TestFloder\\PETool_sc3.exe";
+    LPSTR InFilePath ="D:\\justdo\\A\\fg.exe";
+    LPSTR OutFilePath = "D:\\justdo\\A\\fg_add.exe";
 
     //加载需要写入的文件
     FileSize = ReadPEFile(InFilePath,&OrginFile);
@@ -337,7 +348,7 @@ BOOL AddShellCode(){
     pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
-
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
     //判断第一个节是否有空间能存下ShellCode的大小
     //文件中对齐之后的节的大小 - 内存中未对齐前的节的大小(内存中的实际大小)
     if ((pSh->SizeOfRawData - pSh->Misc.VirtualSize) < Lenshellcode){
@@ -350,20 +361,31 @@ BOOL AddShellCode(){
     //第一个节在内存中最后的有数据的位置
     //内存中的位置 + 第一个节的偏移值 + 第一个节内存中未对齐前的大小
     CodeBegin = (PBYTE)((DWORD64)FileImage + pSh->VirtualAddress + pSh->Misc.VirtualSize);
-    printf("CodeBegin_Address: %x\n",CodeBegin);
-    printf("ImageBase_Address: %x\n",pO32h->ImageBase );
+
+    printf("VirtualAddress: %x\n",pSh->VirtualAddress);
+    printf("Misc.VirtualSize: %x\n",pSh->Misc.VirtualSize);
+    printf("FileAlignment: %x\n",pO32h_Real->FileAlignment);
+    printf("SectionAlignment: %x\n",pO32h_Real->SectionAlignment);
     printf("FileImage_Address: %x\n",(DWORD64)FileImage);
+    printf("CodeBegin_Address: %x\n",CodeBegin);
+    printf("CodeBegin_Address: %x\n",CodeBegin-(DWORD64)FileImage);
+    printf("ImageBase_Address: %x\n",pO32h_Real->ImageBase);
+    printf("E8: %x\n",*(PDWORD)(CodeBegin + E8Bit));
+    printf("E9: %x\n",*(PDWORD)(CodeBegin + E9Bit));
+    printf("AddressOfEntryPoint: %x\n",pO32h->AddressOfEntryPoint);
+    
     memcpy(CodeBegin,ShellCode,Lenshellcode);
 
     //修正E8
     //E8Call = 需要执行的程序的地址 - ImageBase(实际运行的时候的内存地址) + (ShellCode中E9的起始位置 - 内存中的位置)
     //E8Call = 需要执行的程序的地址 - ImageBase + E8Call在内存中的相对偏移
-    DWORD E8Call = ProgrameAddress - (pO32h->ImageBase + ((DWORD64)((CodeBegin + 0x1b) -(DWORD64)FileImage)));
-    *(PDWORD)(CodeBegin + 0x17) = E8Call;
+    DWORD E8Call = ProgrameAddress - (pO32h_Real->ImageBase + ((DWORD64)((CodeBegin + E9addres) -(DWORD64)FileImage)));
+    *(PDWORD)(CodeBegin + E8Bit) = E8Call;
     printf("E8Call:%x\n",E8Call);
     //修正E9
-    DWORD E9Call = (pO32h->ImageBase + pO32h->AddressOfEntryPoint) - (pO32h->ImageBase + (DWORD64)((CodeBegin + Lenshellcode) - (DWORD64)FileImage));
-    *(PDWORD)(CodeBegin + 0x1c) = E9Call;
+    DWORD E9Call = (pO32h_Real->ImageBase + pO32h->AddressOfEntryPoint) - (pO32h_Real->ImageBase + (DWORD64)((CodeBegin + Lenshellcode) - (DWORD64)FileImage));
+    *(PDWORD)(CodeBegin + E9Bit) = E9Call;
+    printf("E9Call:%x\n",E9Call);
     //修正OEP
     pO32h->AddressOfEntryPoint = (DWORD64)CodeBegin - (DWORD64)FileImage;
 
