@@ -399,6 +399,86 @@ BOOL AddShellCode(){
     return TRUE;
 
 }
+BOOL AddSection(){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+    LPVOID ImageBuffer = NULL;//ImageBuffer
+    LPVOID NewBuffer = NULL;//NewBuffer
+    //文件路径
+    LPSTR FilePath ="D:\\justdo\\A\\PETooltest.exe";
+    LPSTR FileName = "D:\\justdo\\A\\PETooltest_addsec.exe";
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+
+    DWORD FileSize;
+    DWORD FileCopySize;
+    DWORD NewFileCopySize;
+    DWORD WriteSize;
+
+    PBYTE tempbuff = NULL;
+    //传入文件路径和void**类型的待申请地址空间
+    FileSize = ReadPEFile(FilePath,&FileBuffer);
+    FileCopySize = CopyFileBufferToImageBuffer(FileBuffer,&ImageBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)ImageBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+
+    //节的数量
+    DWORD NumSecs = pFh->NumberOfSections;
+
+    //节结束的位置 节表结束到第一个节空白区的开始位置
+    pSh_new = pSh + NumSecs;
+    //写入节表的可用空间
+    DWORD Ablespace = pO32h_Real->SizeOfHeaders - ((DWORD64)pSh - (DWORD64)ImageBuffer);
+    //判断尝试写入的空间够不够两个节表的空间
+    if (Ablespace < (IMAGE_SIZEOF_SECTION_HEADER * 2)){
+        printf("Can`t write Section!\n");
+        free(FileBuffer);
+        free(ImageBuffer);
+        exit(1);
+    }
+    //将第一个节表的数据复制到新的位置上
+    // memcpy((PBYTE)pSh_new,(PBYTE)pSh,IMAGE_SIZEOF_SECTION_HEADER);
+    *pSh_new = *pSh;
+    //将新增节表后面覆盖40个字节的0
+    memset((pSh_new + 1),0,IMAGE_SIZEOF_SECTION_HEADER);
+    //修改新增节的名字
+    BYTE NAME[IMAGE_SIZEOF_SHORT_NAME] = {".NewSec"};
+    for (size_t i = 0; i < IMAGE_SIZEOF_SHORT_NAME; i++){
+        pSh_new->Name[i] = NAME[i];
+    }
+    
+    //增加的节的大小
+    DWORD AddSecSize = 4000;
+    ImageBuffer = realloc(ImageBuffer,AddSecSize);
+
+    
+
+
+    // NewFileCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
+    // WriteSize = MemeryTOFile(NewBuffer,NewFileCopySize,FileName);
+
+    free(FileBuffer);
+    free(ImageBuffer);
+    // free(NewBuffer);
+    return 0;
+
+
+}
+//传入对齐大小(Alignment)和真实大小(relsize) 返回应该对齐的大小
+DWORD getAlign(int Alignment ,int relsize){
+    return (relsize%Alignment > 0)?(relsize/Alignment + 1)*Alignment:Alignment;
+}
 
 int fun(){
     LPVOID OrginFile = NULL;//FileBuffer
