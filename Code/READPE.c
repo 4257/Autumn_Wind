@@ -410,7 +410,7 @@ BOOL AddSection(){
     LPVOID NewBuffer = NULL;//NewBuffer
     //文件路径
     LPSTR FilePath ="D:\\justdo\\A\\massageBox32.exe";
-    LPSTR FileName = "D:\\justdo\\A\\massageBox32_add2.exe";
+    LPSTR FileName = "D:\\justdo\\A\\massageBox32_add.exe";
 
     PIMAGE_DOS_HEADER pDh = NULL;
     PIMAGE_NT_HEADERS pN32h = NULL;
@@ -479,7 +479,7 @@ BOOL AddSection(){
 
     //重新分配内存
     ImageBuffer = realloc(ImageBuffer,pO32h_Real->SizeOfImage);
-    memset(ImageBuffer - AddSecSize,0,AddSecSize);
+    memset(ImageBuffer + pO32h_Real->SizeOfImage - AddSecSize,0,AddSecSize);
 
     NewFileCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
     WriteSize = MemeryTOFile(NewBuffer,NewFileCopySize,FileName);
