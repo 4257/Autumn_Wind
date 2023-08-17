@@ -399,14 +399,18 @@ BOOL AddShellCode(){
     return TRUE;
 
 }
+//传入对齐大小(Alignment)和真实大小(relsize) 返回应该对齐的大小
+DWORD getAlign(DWORD relsize, DWORD Alignment){
+    return relsize/Alignment == relsize/(float)Alignment ? relsize: (relsize/Alignment+1)*Alignment;
+}
 BOOL AddSection(){
 
     LPVOID FileBuffer = NULL;//FileBuffer
     LPVOID ImageBuffer = NULL;//ImageBuffer
     LPVOID NewBuffer = NULL;//NewBuffer
     //文件路径
-    LPSTR FilePath ="D:\\justdo\\A\\PETooltest.exe";
-    LPSTR FileName = "D:\\justdo\\A\\PETooltest_addsec.exe";
+    LPSTR FilePath ="D:\\justdo\\A\\massageBox32.exe";
+    LPSTR FileName = "D:\\justdo\\A\\massageBox32_add2.exe";
 
     PIMAGE_DOS_HEADER pDh = NULL;
     PIMAGE_NT_HEADERS pN32h = NULL;
@@ -452,32 +456,38 @@ BOOL AddSection(){
     *pSh_new = *pSh;
     //将新增节表后面覆盖40个字节的0
     memset((pSh_new + 1),0,IMAGE_SIZEOF_SECTION_HEADER);
-    //修改新增节的名字
+    //修改节表的名字
     BYTE NAME[IMAGE_SIZEOF_SHORT_NAME] = {".NewSec"};
     for (size_t i = 0; i < IMAGE_SIZEOF_SHORT_NAME; i++){
         pSh_new->Name[i] = NAME[i];
     }
+    //修改节表的数量
+    pFh->NumberOfSections += 1;
     
-    //增加的节的大小
-    DWORD AddSecSize = 4000;
-    ImageBuffer = realloc(ImageBuffer,AddSecSize);
+    //需要增加的节的大小
+    DWORD AddSecSize = getAlign(0x4000,pO32h_Real->SectionAlignment);
+    printf("AddSecSize: %x\n",AddSecSize);
+    pO32h_Real->SizeOfImage += AddSecSize;
+    //修改文件和内存偏移
+    pSh_new->PointerToRawData = getAlign((pSh_new-1)->SizeOfRawData + (pSh_new-1)->PointerToRawData,pO32h_Real->FileAlignment);
+    pSh_new->VirtualAddress = getAlign((pSh_new-1)->SizeOfRawData + (pSh_new-1)->VirtualAddress,pO32h_Real->SectionAlignment);
+    pSh_new->Misc.VirtualSize = AddSecSize;
+    pSh_new->SizeOfRawData = AddSecSize;
 
-    
+    //修改节属性
+    pSh_new->Characteristics = 0xE00000C0;
 
+    //重新分配内存
+    ImageBuffer = realloc(ImageBuffer,pO32h_Real->SizeOfImage);
+    memset(ImageBuffer - AddSecSize,0,AddSecSize);
 
-    // NewFileCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
-    // WriteSize = MemeryTOFile(NewBuffer,NewFileCopySize,FileName);
+    NewFileCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
+    WriteSize = MemeryTOFile(NewBuffer,NewFileCopySize,FileName);
 
     free(FileBuffer);
     free(ImageBuffer);
-    // free(NewBuffer);
+    free(NewBuffer);
     return 0;
-
-
-}
-//传入对齐大小(Alignment)和真实大小(relsize) 返回应该对齐的大小
-DWORD getAlign(int Alignment ,int relsize){
-    return (relsize%Alignment > 0)?(relsize/Alignment + 1)*Alignment:Alignment;
 }
 
 int fun(){
