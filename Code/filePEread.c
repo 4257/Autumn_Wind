@@ -270,8 +270,8 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
     //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
     //如果两者相等的话 说明对其方式是一样的 直接返回
-    if(pSh->PointerToRawData == pSh->VirtualAddress){
-        printf("PointerToRawData == VirtualAddress");
+    if(pO32h->SectionAlignment == pO32h->FileAlignment){
+        printf("SectionAlignment == FileAlignment\n");
         return dwRva;
     }
 
@@ -279,10 +279,11 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
     for (size_t i = 0; i < NumOfSections ; i++){
         if ((dwRva > pSh->VirtualAddress) && (dwRva <(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
             FOA = pSh->PointerToRawData + (dwRva - pSh->VirtualAddress);
+            // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
             break;
         }
         pSh ++;
-        printf("RAV to FOA is in %d Section\n",i+1);
+
     }
     return FOA;
 }
@@ -403,6 +404,7 @@ BOOL AddShellCode(){
 DWORD getAlign(DWORD relsize, DWORD Alignment){
     return relsize/Alignment == relsize/(float)Alignment ? relsize: (relsize/Alignment+1)*Alignment;
 }
+//增加节
 BOOL AddSection(){
 
     LPVOID FileBuffer = NULL;//FileBuffer
@@ -494,12 +496,121 @@ BOOL AddSection(){
 }
 //扩大最后一个节
 BOOL ExpandSection(){
+    LPVOID FileBuffer = NULL;//FileBuffer
+    LPVOID ImageBuffer = NULL;//ImageBuffer
+    LPVOID NewBuffer = NULL;//NewBuffer
+    //文件路径
+    LPSTR FilePath = "D:\\justdo\\A\\fg.exe";
+    LPSTR FileName = "D:\\justdo\\A\\fg_expand.exe";
 
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+
+    DWORD FileSize;
+    DWORD FileCopySize;
+    DWORD NewBufferCopySize;
+    DWORD WriteSize;
+
+    //传入文件路径和void**类型的待申请地址空间
+    FileSize = ReadPEFile(FilePath,&FileBuffer);
+    FileCopySize = CopyFileBufferToImageBuffer(FileBuffer,&ImageBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)ImageBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    
+    //扩大最后一个节的大小
+    DWORD ExpandSize = getAlign(0x2000,pO32h_Real->SectionAlignment);
+    //节的数量
+    DWORD NumSecs = pFh->NumberOfSections;
+    //最后一个节表的数据
+    pSh += (NumSecs -1);
+    //判断原始的最后一个节表中SizeOfRawData和VirtualSize谁大
+    DWORD BigSize = pSh->SizeOfRawData > pSh->Misc.VirtualSize?pSh->SizeOfRawData:pSh->Misc.VirtualSize;
+    pSh->Misc.VirtualSize = getAlign(BigSize + ExpandSize,pO32h_Real->SectionAlignment);
+    pSh->SizeOfRawData = getAlign(BigSize + ExpandSize,pO32h_Real->SectionAlignment);
+
+    //修改空间大小
+    pO32h->SizeOfImage += ExpandSize; 
+    ImageBuffer = realloc(ImageBuffer,pO32h->SizeOfImage);
+    memset(ImageBuffer + pO32h->SizeOfImage - ExpandSize,0,ExpandSize);
+
+    NewBufferCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
+    WriteSize = MemeryTOFile(NewBuffer,NewBufferCopySize,FileName);
+
+    free(FileBuffer);
+    free(ImageBuffer);
+    free(NewBuffer);
+    return TRUE;
 }
 
 //合并节
 BOOL MergeSection(){
+    LPVOID FileBuffer = NULL;//FileBuffer
+    LPVOID ImageBuffer = NULL;//ImageBuffer
+    LPVOID NewBuffer = NULL;//NewBuffer
+    //文件路径
+    LPSTR FilePath = "D:\\justdo\\A\\massageBox32.exe";
+    LPSTR FileName = "D:\\justdo\\A\\massageBox32_merge.exe";
 
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+
+    DWORD FileSize;
+    DWORD FileCopySize;
+    DWORD NewBufferCopySize;
+    DWORD WriteSize;
+
+    //传入文件路径和void**类型的待申请地址空间
+    FileSize = ReadPEFile(FilePath,&FileBuffer);
+    FileCopySize = CopyFileBufferToImageBuffer(FileBuffer,&ImageBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)ImageBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    
+    //节的数量
+    DWORD NumSecs = pFh->NumberOfSections;
+    //最后一个节表的数据
+    pSh += (NumSecs -1);
+    //判断原始的最后一个节表中SizeOfRawData和VirtualSize谁大
+    DWORD BigSize = pSh->SizeOfRawData > pSh->Misc.VirtualSize?pSh->SizeOfRawData:pSh->Misc.VirtualSize;
+    //修改第一个节的VirtualSize和SizeOfRawData
+    (pSh-(NumSecs-1))->Misc.VirtualSize = getAlign(pSh->VirtualAddress + BigSize - pO32h->SizeOfHeaders,pO32h_Real->SectionAlignment);
+    (pSh-(NumSecs-1))->SizeOfRawData = getAlign(pSh->VirtualAddress + BigSize - pO32h->SizeOfHeaders,pO32h_Real->SectionAlignment);
+
+    DWORD Chars = 0;
+    for (size_t i = 0; i < NumSecs; i++){
+        Chars |= (pSh-i)->Characteristics;
+    }
+    
+    (pSh-(NumSecs-1))->Characteristics = Chars;
+
+    pFh->NumberOfSections = 1;
+
+    NewBufferCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
+    WriteSize = MemeryTOFile(NewBuffer,NewBufferCopySize,FileName);
+
+    free(FileBuffer);
+    free(ImageBuffer);
+    free(NewBuffer);
+    return TRUE;
 }
 
 //删除Doshub
@@ -546,6 +657,65 @@ void DelDosStub(){
     free(FileBuffer);
 }
 
+//打印导出表
+void PrintOutDes(){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+    PIMAGE_DATA_DIRECTORY pDd = NULL;
+    PIMAGE_EXPORT_DIRECTORY pEd= NULL;
+
+    
+    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
+    ReadPEFile(FilePath,&FileBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)FileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    pDd = pO32h_Real->DataDirectory;
+    printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
+    //导出表在文件中的位置
+    //FileBuff位置 + 文件中偏移位置
+    pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
+    //数据目录
+    printf("pDd:%x\n",pDd->VirtualAddress);
+    printf("pDd:%x\n",pDd->Size);
+    //导出表
+    printf("pEd->Characteristics:%x\n",pEd->Characteristics);
+    printf("pEd->TimeDateStamp:%x\n",pEd->TimeDateStamp);
+    printf("pEd->MajorVersion:%x\n",pEd->MajorVersion);
+    printf("pEd->MinorVersion:%x\n",pEd->MinorVersion);
+    printf("pEd->Name:%x\n",pEd->Name);
+    printf("pEd->Base:%x\n",pEd->Base);
+    printf("pEd->NumberOfFunctions:%x\n",pEd->NumberOfFunctions);
+    printf("pEd->AddressOfNames:%x\n",pEd->NumberOfNames);
+    printf("pEd->AddressOfFunctions:%x\n",pEd->AddressOfFunctions);
+    printf("pEd->AddressOfNameOrdinals:%x\n",pEd->AddressOfNameOrdinals);
+    printf("pEd->AddressOfNames:%x\n",pEd->AddressOfNames);
+    
+    //
+    //返回NumberOfFunctions和NumberOfNames中最大的
+    DWORD max = pEd->NumberOfFunctions > pEd->NumberOfNames ? pEd->NumberOfFunctions:pEd->NumberOfNames;
+    //将AddressOfFunctions的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD nOf = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions));
+    for (size_t i = 0; i < max; i++){   
+        //由于数组中存的也是RVA 所有还要再转成FOA 得到文件中的位置
+        printf("%x\n",RvaToFileOffset(FileBuffer,nOf[i]));
+    //     printf("%x\n", RvaToFileOffset(FileBuffer, ((PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions)))[i]));
+    }
+    
+}
+
 int fun(){
     LPVOID FileBuffer = NULL;//FileBuffer
     LPVOID ImageBuffer = NULL;//ImageBuffer
@@ -589,16 +759,16 @@ int fun(){
 
 DWORD Test(){
     LPVOID FileBuffer = NULL;//FileBuffer
-    LPVOID ImageBuffer = NULL;//ImageBuffer
+    // LPVOID ImageBuffer = NULL;//ImageBuffer
     // LPVOID NewBuffer = NULL;//NewBuffer
 
     //文件路径
     // LPSTR FilePath ="E:\\User\\Documents\\learn\\vs_learn\\C_Test\\word_test\\testod.exe";
-    LPSTR FilePath ="D:\\User\\Documents\\learn\\VSCode\\CLanguage\\cTest\\src\\leaen\\testod.exe";
+    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
 
     //返回的文件大小
     DWORD FileSize;
-    DWORD FileCopySize;
+    // DWORD FileCopySize;
     // DWORD NewBufferCopySize;
     // DWORD WriteSize;
     printf("*********************************************************\n");
@@ -608,7 +778,7 @@ DWORD Test(){
     printf("*********************************************************\n");
 
 
-    DWORD RAV =0x4004;
+    DWORD RAV =0x2378e0;
     DWORD FOA;
     FOA = RvaToFileOffset(FileBuffer,RAV);
     printf("FOA: %x",FOA);
@@ -621,6 +791,9 @@ int main(int argc, char const *argv[])
     // Test();
     // AddShellCode();
     // AddSection();
-    DelDosStub();
+    // DelDosStub();
+    // ExpandSection();
+    // MergeSection();
+    PrintOutDes();
     return 0;
 }
