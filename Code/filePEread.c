@@ -687,6 +687,10 @@ void PrintOutDes(){
     //导出表在文件中的位置
     //FileBuff位置 + 文件中偏移位置
     pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
+    if (pDd->VirtualAddress == NULL){
+        printf("No Export Table!\n");
+    }
+    
     //数据目录
     printf("pDd:%x\n",pDd->VirtualAddress);
     printf("pDd:%x\n",pDd->Size);
@@ -703,17 +707,38 @@ void PrintOutDes(){
     printf("pEd->AddressOfNameOrdinals:%x\n",pEd->AddressOfNameOrdinals);
     printf("pEd->AddressOfNames:%x\n",pEd->AddressOfNames);
     
-    //
     //返回NumberOfFunctions和NumberOfNames中最大的
     DWORD max = pEd->NumberOfFunctions > pEd->NumberOfNames ? pEd->NumberOfFunctions:pEd->NumberOfNames;
     //将AddressOfFunctions的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
-    PDWORD nOf = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions));
-    for (size_t i = 0; i < max; i++){   
-        //由于数组中存的也是RVA 所有还要再转成FOA 得到文件中的位置
-        printf("%x\n",RvaToFileOffset(FileBuffer,nOf[i]));
-    //     printf("%x\n", RvaToFileOffset(FileBuffer, ((PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions)))[i]));
+    PDWORD aOf = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions));
+    //将AddressOfNameOrdinals的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置 该表中元素宽度为两字节
+    PWORD aOo = (PWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNameOrdinals));
+    //将AddressOfNames的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD aOn = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNames));
+
+    printf("No.|AOFunctions_RVA|AOFunctions_FOA|AONameOrdinals|AONames_RVA|AONames_FOA|AddressOfNames\n");
+    for (size_t i = 0; i < max; i++){  
+        printf("%3x", i); 
+        if (i<pEd->NumberOfFunctions ){
+            //RVA 实际AddressOfFunctions表中存的值
+            printf("|%14x |",aOf[i]);
+            //由于数组中存的也是RVA 所有还要再转成FOA 得到文件中的位置
+            printf("%14x |",RvaToFileOffset(FileBuffer,aOf[i]));
+            //printf("%x\n", RvaToFileOffset(FileBuffer, ((PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions)))[i]));
+        }else{
+            printf("|---------|");
+        }
+        if (i<pEd->NumberOfNames){
+            //AddressOfNameOrdinals表中是值 直接输出
+            printf("%13x |",aOo[i]);
+            //AddressOfNames表中直接输出是名字的RVA
+            printf("%10x |",aOn[i]);
+            //AddressOfNames转换成FOA
+            printf("%10x |",RvaToFileOffset(FileBuffer,aOn[i]));
+            //获取真实名字在文件中的偏移(FOA)之后 加上FileBuffer的基地址 以字符串的方式输出
+            printf("%s\n",(PSTR)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,aOn[i])));
+        }
     }
-    
 }
 
 int fun(){
