@@ -722,7 +722,7 @@ void PrintOutDes(){
         if (i<pEd->NumberOfFunctions ){
             //RVA 实际AddressOfFunctions表中存的值
             printf("|%14x |",aOf[i]);
-            //由于数组中存的也是RVA 所有还要再转成FOA 得到文件中的位置
+            //由于数组中存的也是RVA 所以还要再转成FOA 得到文件中的偏移
             printf("%14x |",RvaToFileOffset(FileBuffer,aOf[i]));
             //printf("%x\n", RvaToFileOffset(FileBuffer, ((PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions)))[i]));
         }else{
