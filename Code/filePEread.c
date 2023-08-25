@@ -277,7 +277,7 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
     DWORD FOA = 0;
     for (size_t i = 0; i < NumOfSections ; i++){
-        if ((dwRva > pSh->VirtualAddress) && (dwRva <(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
+        if ((dwRva >= pSh->VirtualAddress) && (dwRva <=(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
             FOA = pSh->PointerToRawData + (dwRva - pSh->VirtualAddress);
             // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
             break;
@@ -687,7 +687,7 @@ void PrintOutDes(){
     //导出表在文件中的位置
     //FileBuff位置 + 文件中偏移位置
     pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
-    if (pDd->VirtualAddress == NULL){
+    if (pDd->VirtualAddress == 0){
         printf("No Export Table!\n");
     }
     
@@ -739,6 +739,61 @@ void PrintOutDes(){
             printf("%s\n",(PSTR)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,aOn[i])));
         }
     }
+    free(FileBuffer);
+}
+
+//打印导出表
+void PrintRelocatingDes(){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+    PIMAGE_DATA_DIRECTORY pDd = NULL;
+    PIMAGE_BASE_RELOCATION pBd= NULL;
+
+    
+    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
+    ReadPEFile(FilePath,&FileBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)FileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    pDd = pO32h_Real->DataDirectory;
+    printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
+    //重定位表
+    //数据目录的第五张表是重定位表
+    // pDd = pDd[5].VirtualAddress;
+    // pDd = pDd+5;
+    printf("pDd->VirtualAddress:%x\n",pDd[5].VirtualAddress);
+    printf("pDd->Size:%x\n",pDd[5].Size);
+    //FileBuff位置 + 文件中偏移位置
+    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
+    printf("RvaToFileOffset_BASE_RELOCATION:%x\n",RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
+    printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
+    printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
+    //Block的数量
+    DWORD numBs = (pBd->SizeOfBlock-8)/2;
+    //Block的地址
+    PWORD pSb = (PWORD)((DWORD64)pBd + 8);
+    printf("pBd:%x\n",(DWORD64)pBd);
+    printf("pSb:%x\n",(DWORD64)pSb);
+    for (size_t i = 0; i < numBs; i++)
+    {
+        printf("%d %x\n",i,pSb[i]);
+    }
+    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)pBd+ pBd->SizeOfBlock);
+    printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
+    printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
+    free(FileBuffer);
 }
 
 int fun(){
@@ -819,6 +874,7 @@ int main(int argc, char const *argv[])
     // DelDosStub();
     // ExpandSection();
     // MergeSection();
-    PrintOutDes();
+    // PrintOutDes();
+    PrintRelocatingDes();
     return 0;
 }
