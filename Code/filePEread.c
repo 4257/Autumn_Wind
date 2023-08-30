@@ -775,24 +775,32 @@ void PrintRelocatingDes(){
     // pDd = pDd+5;
     printf("pDd->VirtualAddress:%x\n",pDd[5].VirtualAddress);
     printf("pDd->Size:%x\n",pDd[5].Size);
-    //FileBuff位置 + 文件中偏移位置
+    //FileBuff位置 + 文件中偏移位置得到重定位表在文件中的位置
     pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
     printf("RvaToFileOffset_BASE_RELOCATION:%x\n",RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
-    printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
-    printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
-    //Block的数量
-    DWORD numBs = (pBd->SizeOfBlock-8)/2;
-    //Block的地址
-    PWORD pSb = (PWORD)((DWORD64)pBd + 8);
-    printf("pBd:%x\n",(DWORD64)pBd);
-    printf("pSb:%x\n",(DWORD64)pSb);
-    for (size_t i = 0; i < numBs; i++)
-    {
-        printf("%d %x\n",i,pSb[i]);
-    }
-    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)pBd+ pBd->SizeOfBlock);
-    printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
-    printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
+    //************************************************************************************************************
+    //输出全部
+    DWORD count = 0;
+    do{
+        printf("%3d VirtualAddress:%x SizeOfBlock:%x\n",count,pBd->VirtualAddress,pBd->SizeOfBlock);
+        //Block的数量
+        DWORD numBs = (pBd->SizeOfBlock-8)/2;
+        //Block的地址
+        PWORD pSb = (PWORD)((DWORD64)pBd + 8);
+        // printf("pBd:%x\n",(DWORD64)pBd);
+        // printf("pSb:%x\n",(DWORD64)pSb);
+        for (size_t i = 0; i < numBs; i++){
+            if (pSb[i]>>12 == 0) continue;
+            //序号 block元素 block元素的文件偏移
+            printf("%d %x %x\n",i,pSb[i],(DWORD64)&pSb[i] - (DWORD64)FileBuffer);
+        }
+        pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)pBd+ pBd->SizeOfBlock);
+        count++;
+    } while (pBd->SizeOfBlock != 0 && pBd->VirtualAddress != 0 );
+    // printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
+    // printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
+    //************************************************************************************************************
+
     free(FileBuffer);
 }
 
@@ -862,6 +870,7 @@ DWORD Test(){
     DWORD FOA;
     FOA = RvaToFileOffset(FileBuffer,RAV);
     printf("FOA: %x",FOA);
+    free(FileBuffer);
 
 }
 
