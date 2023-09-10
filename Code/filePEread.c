@@ -742,7 +742,7 @@ void PrintOutDes(){
     free(FileBuffer);
 }
 
-//打印导出表
+//打印重定位表
 void PrintRelocatingDes(){
 
     LPVOID FileBuffer = NULL;//FileBuffer
@@ -758,7 +758,7 @@ void PrintRelocatingDes(){
     PIMAGE_BASE_RELOCATION pBd= NULL;
 
     
-    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
+    LPSTR FilePath ="D:\\Tools\\flashphone\\platform-tools\\AdbWinUsbApi.dll";
     ReadPEFile(FilePath,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
@@ -770,7 +770,7 @@ void PrintRelocatingDes(){
     pDd = pO32h_Real->DataDirectory;
     printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
     //重定位表
-    //数据目录的第五张表是重定位表
+    //数据目录的第六张表是重定位表
     // pDd = pDd[5].VirtualAddress;
     // pDd = pDd+5;
     printf("pDd->VirtualAddress:%x\n",pDd[5].VirtualAddress);
@@ -800,7 +800,6 @@ void PrintRelocatingDes(){
     // printf("pBd->VirtualAddress:%x\n",pBd->VirtualAddress);
     // printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
     //************************************************************************************************************
-
     free(FileBuffer);
 }
 
