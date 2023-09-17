@@ -270,7 +270,7 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
     //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
     //如果两者相等的话 说明对其方式是一样的 直接返回
-    if(pO32h->SectionAlignment == pO32h->FileAlignment){
+    if(dwRva < pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
         printf("SectionAlignment == FileAlignment\n");
         return dwRva;
     }
@@ -286,6 +286,50 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
     }
     return FOA;
+}
+
+//**************************************************************************
+//FoaToRva:将文件偏移转换为内存偏移
+//参数说明：
+//pFileBuffer FileBuffer指针
+//dwFoa FOA的值
+//返回值说明：
+//返回转换后的Rva的值  如果失败返回0
+//**************************************************************************
+DWORD FoaToRva(IN LPVOID pFileBuffer,IN DWORD dwFoa){
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_last = NULL;
+
+    pDh = (PIMAGE_DOS_HEADER)pFileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    
+    DWORD NumOfSections = pFh->NumberOfSections;
+
+    //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
+    //如果两者相等的话 说明对其方式是一样的 直接返回
+    if(dwFoa < pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
+        printf("SectionAlignment == FileAlignment\n");
+        return dwFoa;
+    }
+
+    DWORD RVA = 0;
+    for (size_t i = 0; i < NumOfSections ; i++){
+        if ((dwFoa >= pSh->PointerToRawData ) && (dwFoa <=(pSh->PointerToRawData  + pSh->Misc.VirtualSize))){
+            RVA = pSh->VirtualAddress + (dwFoa - pSh->PointerToRawData);
+            // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
+            break;
+        }
+        pSh ++;
+
+    }
+    return RVA;
 }
 
 BOOL AddShellCode(){
@@ -494,6 +538,103 @@ BOOL AddSection(){
     free(NewBuffer);
     return TRUE;
 }
+
+//增加节 
+//传入文件名和输出的文件名 以及文件需要被增加的大小
+//返回增加的节的FOA
+DWORD AddSection_Func(LPSTR filePath,LPSTR savePath ,DWORD adSize){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+    LPVOID ImageBuffer = NULL;//ImageBuffer
+    LPVOID NewBuffer = NULL;//NewBuffer
+    //文件路径
+    LPSTR FilePath = filePath;
+    LPSTR FileName = savePath;
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+
+    DWORD FileSize;
+    DWORD FileCopySize;
+    DWORD NewBufferCopySize;
+    DWORD WriteSize;
+
+    PBYTE tempbuff = NULL;
+    //传入文件路径和void**类型的待申请地址空间
+    FileSize = ReadPEFile(FilePath,&FileBuffer);
+    FileCopySize = CopyFileBufferToImageBuffer(FileBuffer,&ImageBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)ImageBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+
+    //节的数量
+    DWORD NumSecs = pFh->NumberOfSections;
+
+    //节结束的位置 节表结束到第一个节空白区的开始位置
+    pSh_new = pSh + NumSecs;
+    //写入节表的可用空间
+    DWORD Ablespace = pO32h_Real->SizeOfHeaders - ((DWORD64)pSh - (DWORD64)ImageBuffer);
+    //判断尝试写入的空间够不够两个节表的空间
+    if (Ablespace < (IMAGE_SIZEOF_SECTION_HEADER * 2)){
+        printf("Can`t write Section!\n");
+        free(FileBuffer);
+        free(ImageBuffer);
+        exit(1);
+    }
+    //将第一个节表的数据复制到新的位置上
+    // memcpy((PBYTE)pSh_new,(PBYTE)pSh,IMAGE_SIZEOF_SECTION_HEADER);
+    *pSh_new = *pSh;
+    //将新增节表后面覆盖40个字节的0
+    memset((pSh_new + 1),0,IMAGE_SIZEOF_SECTION_HEADER);
+    //修改节表的名字
+    BYTE NAME[IMAGE_SIZEOF_SHORT_NAME] = {".NewSec"};
+    for (size_t i = 0; i < IMAGE_SIZEOF_SHORT_NAME; i++){
+        pSh_new->Name[i] = NAME[i];
+    }
+    //修改节表的数量
+    pFh->NumberOfSections += 1;
+    
+    //需要增加的节的大小
+    DWORD AddSecSize = getAlign(adSize,pO32h_Real->SectionAlignment);
+    printf("AddSecSize: %x\n",AddSecSize);
+    pO32h_Real->SizeOfImage += AddSecSize;
+    //判断原始的最后一个节表中SizeOfRawData和VirtualSize谁大
+    DWORD BigSize = (pSh_new-1)->SizeOfRawData >(pSh_new-1)->Misc.VirtualSize?(pSh_new-1)->SizeOfRawData:(pSh_new-1)->Misc.VirtualSize;
+    //修改文件和内存偏移
+    //修改文件大小和内存大小
+    pSh_new->PointerToRawData = getAlign(BigSize + (pSh_new-1)->PointerToRawData,pO32h_Real->FileAlignment);
+    pSh_new->VirtualAddress = getAlign(BigSize + (pSh_new-1)->VirtualAddress,pO32h_Real->SectionAlignment);
+    pSh_new->Misc.VirtualSize = AddSecSize;
+    pSh_new->SizeOfRawData = AddSecSize;
+
+    //修改节属性
+    pSh_new->Characteristics = 0xE00000C0;
+
+    //重新分配内存
+    ImageBuffer = realloc(ImageBuffer,pO32h_Real->SizeOfImage);
+    memset(ImageBuffer + pO32h_Real->SizeOfImage - AddSecSize,0,AddSecSize);
+
+    NewBufferCopySize = CopyImageBufferToNewBuffer(ImageBuffer,&NewBuffer);
+    WriteSize = MemeryTOFile(NewBuffer,NewBufferCopySize,FileName);
+
+    DWORD NewSecFoa = pSh_new->PointerToRawData;
+
+    free(FileBuffer);
+    free(ImageBuffer);
+    free(NewBuffer);
+
+    return NewSecFoa;
+}
+
 //扩大最后一个节
 BOOL ExpandSection(){
     LPVOID FileBuffer = NULL;//FileBuffer
@@ -673,7 +814,7 @@ void PrintOutDes(){
     PIMAGE_EXPORT_DIRECTORY pEd= NULL;
 
     
-    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
+    LPSTR FilePath ="D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";
     ReadPEFile(FilePath,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
@@ -682,6 +823,7 @@ void PrintOutDes(){
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    //数据吗目录表
     pDd = pO32h_Real->DataDirectory;
     printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
     //导出表在文件中的位置
@@ -767,6 +909,7 @@ void PrintRelocatingDes(){
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    //数据目录表
     pDd = pO32h_Real->DataDirectory;
     printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
     //重定位表
@@ -790,6 +933,7 @@ void PrintRelocatingDes(){
         // printf("pBd:%x\n",(DWORD64)pBd);
         // printf("pSb:%x\n",(DWORD64)pSb);
         for (size_t i = 0; i < numBs; i++){
+            //判断高位是否为0 为0则不需要修改
             if (pSb[i]>>12 == 0) continue;
             //序号 block元素 block元素的文件偏移
             printf("%d %x %x\n",i,pSb[i],(DWORD64)&pSb[i] - (DWORD64)FileBuffer);
@@ -801,6 +945,125 @@ void PrintRelocatingDes(){
     // printf("pBd->SizeOfBlock:%x\n",pBd->SizeOfBlock);
     //************************************************************************************************************
     free(FileBuffer);
+}
+
+void MoveOutAndRel(){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+    LPVOID NewBuffer = NULL;//NewBuffer
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+    PIMAGE_DATA_DIRECTORY pDd = NULL;
+    PIMAGE_EXPORT_DIRECTORY pEd= NULL;
+    PIMAGE_BASE_RELOCATION pBd= NULL;
+
+    //文件路径
+    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";//原始文件
+    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_add.dll";//新增节后的文件
+    DWORD adSize = 0x4000;
+
+    //增加新的节 方便移动导出表和重定位表
+    //NewSecFoa就是实际新增的节的PointerToRawData
+    DWORD NewSecFoa = AddSection_Func(FilePath,FileName,adSize);
+    printf("return FOA:%x\n",NewSecFoa);
+    //将新增的节读取的内存中
+    ReadPEFile(FileName,&FileBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)FileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    //数据目录表
+    pDd = pO32h_Real->DataDirectory;
+    //导出表的位置
+    pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
+    //返回NumberOfFunctions和NumberOfNames中最大的
+    DWORD max = pEd->NumberOfFunctions > pEd->NumberOfNames ? pEd->NumberOfFunctions:pEd->NumberOfNames;
+    //将AddressOfFunctions的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD aOf = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions));
+    //将AddressOfNameOrdinals的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置 该表中元素宽度为两字节
+    PWORD aOo = (PWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNameOrdinals));
+    //将AddressOfNames的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD aOn = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNames));
+    
+    //复制将AddressOfFunctions表
+    //新增加节在文件中的位置
+    LPVOID NewSecAdd = FileBuffer + NewSecFoa;
+    //AddressOfFunctions的大小 = NumberOfFunctions*4
+    DWORD aOfSize = pEd->NumberOfFunctions * 4;
+    printf("AddressOfFunctions Size:%x\n",aOfSize);
+    memcpy(NewSecAdd,aOf,aOfSize);
+    //复制AddressOfNameOrdinals
+    //AddressOfNameOrdinals的大小 = NumberOfNames * 2
+    DWORD aOoSize = pEd->NumberOfNames * 2;
+    printf("AddressOfNameOrdinals Size:%x\n",aOoSize);
+    memcpy(NewSecAdd + aOfSize,aOo,aOoSize);
+    //复制AddressOfNames
+    //AddressOfNames的大小 = NumberOfNames * 4
+    DWORD aOnSize = pEd->NumberOfNames * 4;
+    memcpy(NewSecAdd + aOfSize + aOoSize,aOn,aOnSize);
+    printf("AddressOfNames Size:%x\n",aOnSize);
+    //复制AddressOfNames实际的名称
+    //真实名字在FileBuffer中的起始位置
+   LPVOID aOnRelNamesStart = NewSecAdd + aOfSize + aOoSize + aOnSize;
+   printf("Start address: %x\n",aOnRelNamesStart);
+   for (size_t i = 0; i < pEd->NumberOfNames; i++){   
+       //AddressOfNames表在文件中的位置
+       PDWORD tempaOn = NewSecAdd + aOfSize + aOoSize;
+       //依照原始的AddressOfNames表得到实际的函数名称 并且复制给一个临时变量temp
+       PSTR temp = strcpy((PSTR)aOnRelNamesStart,(PSTR)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,aOn[i])));
+       //字符串最后需要00结尾 所以要加一个字节
+       DWORD tempSize = strlen(temp) + 1;
+       //以下算出来是FOA 文件偏移
+       //tempaOn[i] = (DWORD64)(temp - (DWORD64)FileBuffer);
+
+       //实际需要转换成RVA再存入AddressOfNames表中 AddressOfNames表的修复
+       tempaOn[i] = FoaToRva(FileBuffer,(DWORD64)(temp - (DWORD64)FileBuffer));
+
+       //输出转换后的函数名 此时tempaOn等于aOn 保证解析的时候不出错
+       //printf("%s\n",(PSTR)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,tempaOn[i])));
+       
+       //记录每次复制的字符串大小 为后续复制其他结构做基础
+       aOnRelNamesStart += tempSize;
+   }
+    printf("Start address add all numbers of character: %x\n",aOnRelNamesStart);
+
+    //复制导出表
+    memcpy(aOnRelNamesStart,pEd,sizeof(IMAGE_EXPORT_DIRECTORY));
+
+    //修改导出表里面三张表的位置
+    //由于闲复制了导出表 所以重新找到导出表的位置aOnRelNamesStart为再文件中的位置 已经加上了FileBuffer的值
+    pEd = (PIMAGE_EXPORT_DIRECTORY)aOnRelNamesStart;
+    //AddressOfFunctions、AddressOfNameOrdinals、AddressOfNames三张表的位置
+    //实际存的值是RVA 所以需要转换 新增节的起始位置加上增加的数据大小就是各表的位置
+    pEd->AddressOfFunctions = FoaToRva(FileBuffer,NewSecFoa);
+    pEd->AddressOfNameOrdinals = FoaToRva(FileBuffer,NewSecFoa + aOfSize);
+    pEd->AddressOfNames =FoaToRva(FileBuffer,NewSecFoa + aOfSize + aOoSize);
+
+
+    //修复数据目录表第一项指向的值
+    //数据目录表是在PE头中的 所以直接将复制之后的导出表的FOA转成RVA 然后修改就行了
+    printf("original export address:%x\n",pDd->VirtualAddress);
+    pDd->VirtualAddress = FoaToRva(FileBuffer,aOnRelNamesStart-FileBuffer);
+    printf("Revised export address:%x\n",pDd->VirtualAddress);
+    printf("Revised export`s FOA is:%x\n",RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
+
+    //重定位表的位置
+    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
+    
+    //将修改后的文件重新写入
+    MemeryTOFile(FileBuffer,pO32h->SizeOfImage,FileName);
+
+    free(FileBuffer);
+    free(NewBuffer);
 }
 
 int fun(){
@@ -883,6 +1146,7 @@ int main(int argc, char const *argv[])
     // ExpandSection();
     // MergeSection();
     // PrintOutDes();
-    PrintRelocatingDes();
+    // PrintRelocatingDes();
+    MoveOutAndRel();
     return 0;
 }
