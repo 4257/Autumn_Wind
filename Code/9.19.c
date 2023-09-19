@@ -43,9 +43,9 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
     printf("FileBuffer need malloc %d bytes\n",fileSize);
 
     //写入大小
-    DWORD wriSize;
-    wriSize = fread(*pFileBuffer,1,fileSize,pfile);
-    if (!wriSize){
+    DWORD readSize;
+    readSize = fread(*pFileBuffer,1,fileSize,pfile);
+    if (!readSize){
         printf("Can`t copy file to buff!\n");
         fclose(pfile);
         return 0;
@@ -54,7 +54,7 @@ DWORD ReadPEFile(IN LPSTR lpszFile,OUT LPVOID* pFileBuffer){
     //关闭文件
     fclose(pfile);
     //返回写入Buff的大小
-    return wriSize;
+    return readSize;
 
 }
 
@@ -273,13 +273,13 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
     //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
     //如果两者相等的话 说明对其方式是一样的 直接返回
     if(dwRva < pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
-        printf("SectionAlignment == FileAlignment\n");
+        // printf("SectionAlignment == FileAlignment\n");
         return dwRva;
     }
 
     DWORD FOA = 0;
     for (size_t i = 0; i < NumOfSections ; i++){
-        if ((dwRva >= pSh->VirtualAddress) && (dwRva <=(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
+        if ((dwRva >= pSh->VirtualAddress) && (dwRva <(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
             FOA = pSh->PointerToRawData + (dwRva - pSh->VirtualAddress);
             // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
             break;
@@ -584,7 +584,7 @@ DWORD AddSection_Func(LPSTR filePath,LPSTR savePath ,DWORD adSize){
     //节结束的位置 节表结束到第一个节空白区的开始位置
     pSh_new = pSh + NumSecs;
     //写入节表的可用空间
-    DWORD Ablespace = pO32h_Real->SizeOfHeaders - ((DWORD64)pSh - (DWORD64)ImageBuffer);
+    DWORD Ablespace = pO32h_Real->SizeOfHeaders - ((DWORD64)pSh_new - (DWORD64)ImageBuffer);
     //判断尝试写入的空间够不够两个节表的空间
     if (Ablespace < (IMAGE_SIZEOF_SECTION_HEADER * 2)){
         printf("Can`t write Section!\n");
@@ -823,7 +823,8 @@ void PrintOutDes(){
     PIMAGE_EXPORT_DIRECTORY pEd= NULL;
 
     
-    LPSTR FilePath ="D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";
+    LPSTR FilePath ="D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";
+    // LPSTR FilePath ="D:\\justdo\\A\\cearkTest\\libwinpthread-1.DLL";
     ReadPEFile(FilePath,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
@@ -832,14 +833,13 @@ void PrintOutDes(){
     pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
     pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
     pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
-    //数据吗目录表
+    //数据目录表
     pDd = pO32h_Real->DataDirectory;
-    printf("pDd rel Address:%x\n",(DWORD64)&(pDd->VirtualAddress) - (DWORD64)FileBuffer);
-    //导出表在文件中的位置
-    //FileBuff位置 + 文件中偏移位置
+    //导出表的位置
     pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
     if (pDd->VirtualAddress == 0){
         printf("No Export Table!\n");
+        return;
     }
     
     //数据目录
@@ -972,16 +972,16 @@ void Movexport(){
     PIMAGE_BASE_RELOCATION pBd= NULL;
 
     //文件路径
-    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";//原始文件
-    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_addexp.dll";//新增节后的文件
-    DWORD adSize = 0x4000;
+    LPSTR FilePath = "D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";//原始文件
+    LPSTR FileName = "D:\\justdo\\A\\cearkTest\\BOOKMARK_export.DLL";//新增节后的文件
+    DWORD adSize = 0x2000;
 
     //增加新的节 方便移动导出表和重定位表
     //NewSecFoa就是实际新增的节的PointerToRawData
     DWORD NewSecFoa = AddSection_Func(FilePath,FileName,adSize);
     printf("return FOA:%x\n",NewSecFoa);
     //将新增的节读取的内存中
-    ReadPEFile(FileName,&FileBuffer);
+    DWORD readSize = ReadPEFile(FileName,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
     pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
@@ -1063,12 +1063,9 @@ void Movexport(){
     pDd->VirtualAddress = FoaToRva(FileBuffer,aOnRelNamesStart-FileBuffer);
     printf("Revised export address:%x\n",pDd->VirtualAddress);
     printf("Revised export`s FOA is:%x\n",RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
-
-    //重定位表的位置
-    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
     
     //将修改后的文件重新写入
-    MemeryTOFile(FileBuffer,pO32h->SizeOfImage,FileName);
+    MemeryTOFile(FileBuffer,readSize,FileName);
 
     free(FileBuffer);
 }
@@ -1325,9 +1322,9 @@ int main(int argc, char const *argv[])
     // DelDosStub();
     // ExpandSection();
     // MergeSection();
-    // PrintOutDes();
+    PrintOutDes();
     // PrintRelocatingDes();
     // Movexport();
-    MovRel();
+    // MovRel();
     return 0;
 }
