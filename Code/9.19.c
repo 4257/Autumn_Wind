@@ -823,7 +823,8 @@ void PrintOutDes(){
     PIMAGE_EXPORT_DIRECTORY pEd= NULL;
 
     
-    LPSTR FilePath ="D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";
+    // LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";
+    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_export.dll";
     // LPSTR FilePath ="D:\\justdo\\A\\cearkTest\\libwinpthread-1.DLL";
     ReadPEFile(FilePath,&FileBuffer);
 
@@ -843,8 +844,8 @@ void PrintOutDes(){
     }
     
     //数据目录
-    printf("pDd:%x\n",pDd->VirtualAddress);
-    printf("pDd:%x\n",pDd->Size);
+    printf("pEd VirtualAddress:%x\n",pDd->VirtualAddress);
+    printf("pEd Size:%x\n",pDd->Size);
     //导出表
     printf("pEd->Characteristics:%x\n",pEd->Characteristics);
     printf("pEd->TimeDateStamp:%x\n",pEd->TimeDateStamp);
@@ -909,7 +910,7 @@ void PrintRelocatingDes(){
     PIMAGE_BASE_RELOCATION pBd= NULL;
 
     
-    LPSTR FilePath ="D:\\Tools\\flashphone\\platform-tools\\AdbWinUsbApi.dll";
+    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_export_rel.dll";
     ReadPEFile(FilePath,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
@@ -934,7 +935,7 @@ void PrintRelocatingDes(){
     //输出全部
     DWORD count = 0;
     do{
-        printf("%3d VirtualAddress:%x SizeOfBlock:%x\n",count,pBd->VirtualAddress,pBd->SizeOfBlock);
+        printf("%d VirtualAddress:%x SizeOfBlock:%x\n",count,pBd->VirtualAddress,pBd->SizeOfBlock);
         //Block的数量
         DWORD numBs = (pBd->SizeOfBlock-8)/2;
         //Block的地址
@@ -972,8 +973,8 @@ void Movexport(){
     PIMAGE_BASE_RELOCATION pBd= NULL;
 
     //文件路径
-    LPSTR FilePath = "D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";//原始文件
-    LPSTR FileName = "D:\\justdo\\A\\cearkTest\\BOOKMARK_export.DLL";//新增节后的文件
+    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi.dll";//原始文件
+    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_export.dll";//新增节后的文件
     DWORD adSize = 0x2000;
 
     //增加新的节 方便移动导出表和重定位表
@@ -1069,7 +1070,7 @@ void Movexport(){
 
     free(FileBuffer);
 }
-//传入一个文件 返回内存对齐后 计算出的重定位表完整结构的 包括表结构的大小
+//传入一个文件 计算出的重定位表完整结构的大小
 DWORD calcRelsize(LPSTR FilePath){
 
     LPVOID FileBuffer = NULL;//FileBuffer
@@ -1109,12 +1110,11 @@ DWORD calcRelsize(LPSTR FilePath){
     } while (pBd->SizeOfBlock != 0 && pBd->VirtualAddress != 0 );
     //要再加上8个字节的数据作为结尾
     count += 8;
-    count += sizeof(IMAGE_BASE_RELOCATION);
     free(FileBuffer);
     return count;
 
 }
-/*
+
 //移动重定位表
 //先将所有的块移动的新增节的位置 再移动重定位表表的位置
 void MovRel(){
@@ -1132,9 +1132,9 @@ void MovRel(){
     PIMAGE_BASE_RELOCATION pBd= NULL;
 
     //文件路径
-    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_add.dll";//原始文件
-    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_add_rel.dll";//新增节后的文件
-    //计算重定位表的大小 返回内存对齐之后的大小
+    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_export.dll";//原始文件
+    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_export_rel.dll";//新增节后的文件
+    //计算重定位表所有块的大小 也是需要复制的大小
     DWORD count = calcRelsize(FilePath);
     //增加新的节的大小 方便移动重定位表 默认为0x4000
     DWORD adSize = 0x4000;
@@ -1145,7 +1145,7 @@ void MovRel(){
     printf("return FOA:%x\n",NewSecFoa);
 
     //再将新增的节的文件读取的内存中
-    ReadPEFile(FileName,&FileBuffer);
+    DWORD ReadSize = ReadPEFile(FileName,&FileBuffer);
 
     pDh = (PIMAGE_DOS_HEADER)FileBuffer;
     pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
@@ -1160,89 +1160,21 @@ void MovRel(){
     //FileBuff位置 + 文件中偏移位置得到重定位表在文件中的位置
     pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
 
-    DWORD blockSize = count - sizeof(IMAGE_BASE_RELOCATION);
     //开始复制块
-    //新增加节在文件中的位置
+    //新增节在文件中的位置
     LPVOID NewSecAdd = FileBuffer + NewSecFoa;
-    
-    memcpy(NewSecAdd,pBd,blockSize);
-
-    //复制重定位表
-    memcpy(NewSecAdd + blockSize,&pDd[5],sizeof(IMAGE_EXPORT_DIRECTORY));
+    memcpy(NewSecAdd,pBd,count);
 
     //修改重定位表所指向的位置 需要转换成RVA
     pDd[5].VirtualAddress = FoaToRva(FileBuffer,NewSecAdd - FileBuffer);
-    pDd = (PIMAGE_DATA_DIRECTORY)(NewSecAdd + blockSize);
-    pDd->VirtualAddress = FoaToRva(FileBuffer,NewSecAdd - FileBuffer);
+    printf("New file rel table in Foa:%x",RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
 
     //将修改后的文件重新写入
-    MemeryTOFile(FileBuffer,pO32h_Real->SizeOfImage,FileName);
+    MemeryTOFile(FileBuffer,ReadSize,FileName);
 
     free(FileBuffer);
 }
-*/
 
-void MovRel(){
-
-    LPVOID FileBuffer = NULL;//FileBuffer
-
-    PIMAGE_DOS_HEADER pDh = NULL;
-    PIMAGE_NT_HEADERS pN32h = NULL;
-    PIMAGE_FILE_HEADER pFh = NULL;
-    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
-    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
-    PIMAGE_SECTION_HEADER pSh = NULL;
-    PIMAGE_SECTION_HEADER pSh_new = NULL;
-    PIMAGE_DATA_DIRECTORY pDd = NULL;
-    PIMAGE_BASE_RELOCATION pBd= NULL;
-
-    //文件路径
-    LPSTR FilePath = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_addexp.dll";//原始文件
-    LPSTR FileName = "D:\\Tools\\crack reverse\\TestFloder\\AdbWinApi_addexp_addrel.dll";//新增节后的文件
-    DWORD adSize = 0x4000;
-
-    //增加新的节 方便移动导出表和重定位表
-    //NewSecFoa就是实际新增的节的PointerToRawData
-    DWORD NewSecFoa = AddSection_Func(FilePath,FileName,adSize);
-    printf("return FOA:%x\n",NewSecFoa);
-    //将文件节读取的内存中
-    ReadPEFile(FileName,&FileBuffer);
-
-    pDh = (PIMAGE_DOS_HEADER)FileBuffer;
-    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
-    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
-    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
-    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
-    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
-    //数据目录表
-    pDd = pO32h_Real->DataDirectory;
-    
-    //重定位表的位置
-    pBd = (PIMAGE_BASE_RELOCATION)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd[5].VirtualAddress));
-    PIMAGE_BASE_RELOCATION temppBd =pBd;
-    LPVOID NewSecAdd = FileBuffer + NewSecFoa;
-    DWORD count = 0;
-    do{
-        //加上SizeOfBlock每个块的大小
-        count += temppBd->SizeOfBlock;
-        //每次复制一个块
-        memcpy(NewSecAdd,pBd,count);
-        //每次增加块的大小 移动到下一张表
-        temppBd = (PIMAGE_BASE_RELOCATION)((DWORD64)temppBd+ temppBd->SizeOfBlock);
-    } while (temppBd->SizeOfBlock != 0 && temppBd->VirtualAddress != 0 );
-    //要再加上8个字节的数据作为结尾
-    count += 8;
-
-    memcpy(NewSecAdd + count,&pDd[5],sizeof(IMAGE_EXPORT_DIRECTORY));
-
-    pDd = (PIMAGE_DATA_DIRECTORY)(NewSecAdd + count);
-    pDd->VirtualAddress = FoaToRva(FileBuffer,NewSecAdd - FileBuffer);
-
-    //将修改后的文件重新写入
-    MemeryTOFile(FileBuffer,pO32h->SizeOfImage,FileName);
-
-    free(FileBuffer);
-}
 int fun(){
     LPVOID FileBuffer = NULL;//FileBuffer
     LPVOID ImageBuffer = NULL;//ImageBuffer
@@ -1322,8 +1254,8 @@ int main(int argc, char const *argv[])
     // DelDosStub();
     // ExpandSection();
     // MergeSection();
-    PrintOutDes();
-    // PrintRelocatingDes();
+    // PrintOutDes();
+    PrintRelocatingDes();
     // Movexport();
     // MovRel();
     return 0;
