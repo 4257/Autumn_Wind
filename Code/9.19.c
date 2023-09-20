@@ -255,6 +255,17 @@ BOOL MemeryTOFile(IN LPVOID pMemBuffer,IN DWORD Nsize,OUT LPSTR lpszFile){
 //返回转换后的FOA的值  如果失败返回0
 //**************************************************************************
 DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
+    /*
+    RVA to FOA 计算方式:
+        首先传入的RVA 是 VA(virtualAddress 虚拟地址)减去ImageBase(程序的基地址 程序运行时候的起始位置)的值 
+    先判断PE文件中可选头的SectionAlignment(内存对齐值)FileAlignment(文件对齐值)是否相等 或RVA是否比SizeOfHeaders小
+    如果是的话 就直接返回传入的RVA
+        再依次遍历每个节表 比较RVA是否大于等于VirtualAddress(内存中节的偏移 这个值也是RVA) 且小于等于VirtualAddress + VirtualSize(内存中的大小)
+    此步的意思是判断RVA是否在当前节对应的空间中 不是则判断下一个节
+        如是 则让RVA减去VirtualAddress 得到RVA相对于节偏移的偏移值
+        再让RVA加上PointerToRawData(文件中节的偏移)得到FOA
+    */
+
     PIMAGE_DOS_HEADER pDh = NULL;
     PIMAGE_NT_HEADERS pN32h = NULL;
     PIMAGE_FILE_HEADER pFh = NULL;
@@ -272,14 +283,14 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 
     //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
     //如果两者相等的话 说明对其方式是一样的 直接返回
-    if(dwRva < pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
+    if(dwRva <= pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
         // printf("SectionAlignment == FileAlignment\n");
         return dwRva;
     }
 
     DWORD FOA = 0;
     for (size_t i = 0; i < NumOfSections ; i++){
-        if ((dwRva >= pSh->VirtualAddress) && (dwRva <(pSh->VirtualAddress + pSh->Misc.VirtualSize))){
+        if ((dwRva >= pSh->VirtualAddress) && (dwRva < (pSh->VirtualAddress + pSh->Misc.VirtualSize))){
             FOA = pSh->PointerToRawData + (dwRva - pSh->VirtualAddress);
             // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
             break;
@@ -299,6 +310,17 @@ DWORD RvaToFileOffset(IN LPVOID pFileBuffer,IN DWORD dwRva){
 //返回转换后的Rva的值  如果失败返回0
 //**************************************************************************
 DWORD FoaToRva(IN LPVOID pFileBuffer,IN DWORD dwFoa){
+    /*
+    FOA to RVA 计算方式:
+        首先传入的FOA 是 VA(virtualAddress 虚拟地址)减去ImageBase(程序的基地址 程序运行时候的起始位置)的值 
+    先判断PE文件中可选头的SectionAlignment(内存对齐值)FileAlignment(文件对齐值)是否相等 或RVA是否比SizeOfHeaders小
+    如果是的话 就直接返回传入的FOA
+        再依次遍历每个节表 比较FOA是否大于等于PointerToRawData(文件中节的偏移 这个值也是FOA) 且小于等于PointerToRawData + VirtualSize(内存中未对齐前的大小)
+    此步的意思是判断FOA是否在当前节对应的空间中 不是则判断下一个节
+        如是 则让FOA减去PointerToRawData 得到FOA相对于节偏移的偏移值
+        再让FOA加上VirtualAddress(内存中节的偏移)得到RVA
+    */
+
     PIMAGE_DOS_HEADER pDh = NULL;
     PIMAGE_NT_HEADERS pN32h = NULL;
     PIMAGE_FILE_HEADER pFh = NULL;
@@ -316,14 +338,14 @@ DWORD FoaToRva(IN LPVOID pFileBuffer,IN DWORD dwFoa){
 
     //PointerToRawData(文件中偏移) VirtualAddress(内存中偏移)
     //如果两者相等的话 说明对其方式是一样的 直接返回
-    if(dwFoa < pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
-        printf("SectionAlignment == FileAlignment\n");
+    if(dwFoa <= pO32h->SizeOfHeaders || pO32h->SectionAlignment == pO32h->FileAlignment){
+        // printf("SectionAlignment == FileAlignment\n");
         return dwFoa;
     }
 
     DWORD RVA = 0;
     for (size_t i = 0; i < NumOfSections ; i++){
-        if ((dwFoa >= pSh->PointerToRawData ) && (dwFoa <=(pSh->PointerToRawData  + pSh->Misc.VirtualSize))){
+        if ((dwFoa >= pSh->PointerToRawData ) && (dwFoa <(pSh->PointerToRawData  + pSh->Misc.VirtualSize))){
             RVA = pSh->VirtualAddress + (dwFoa - pSh->PointerToRawData);
             // printf("RAV to FOA is in %d Section = %x\n",i+1,FOA);
             break;
@@ -956,6 +978,86 @@ void PrintRelocatingDes(){
     //************************************************************************************************************
     free(FileBuffer);
 }
+//传入一个文件 计算出导出表完整结构的大小
+DWORD calcExportsize(/*LPSTR FilePath*/){
+
+    LPVOID FileBuffer = NULL;//FileBuffer
+
+    PIMAGE_DOS_HEADER pDh = NULL;
+    PIMAGE_NT_HEADERS pN32h = NULL;
+    PIMAGE_FILE_HEADER pFh = NULL;
+    PIMAGE_OPTIONAL_HEADER pO32h = NULL;
+    PIMAGE_OPTIONAL_HEADER32 pO32h_Real = NULL;
+    PIMAGE_SECTION_HEADER pSh = NULL;
+    PIMAGE_SECTION_HEADER pSh_new = NULL;
+    PIMAGE_DATA_DIRECTORY pDd = NULL;
+    PIMAGE_EXPORT_DIRECTORY pEd= NULL;
+    PIMAGE_BASE_RELOCATION pBd= NULL;
+
+    //文件路径
+    LPSTR FilePath = "D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";//原始文件
+
+    //读取文件
+    ReadPEFile(FilePath,&FileBuffer);
+
+    pDh = (PIMAGE_DOS_HEADER)FileBuffer;
+    pN32h = (PIMAGE_NT_HEADERS)((DWORD64)pDh + pDh->e_lfanew);
+    pFh = (PIMAGE_FILE_HEADER)&(pN32h->FileHeader);
+    pO32h = (PIMAGE_OPTIONAL_HEADER)&(pN32h->OptionalHeader);
+    pSh = (PIMAGE_SECTION_HEADER)((DWORD64)&(pN32h->OptionalHeader) + pFh->SizeOfOptionalHeader);
+    pO32h_Real = (PIMAGE_OPTIONAL_HEADER32)pO32h;
+    //数据目录表
+    pDd = pO32h_Real->DataDirectory;
+    //判断导出表是否存在
+    if (pDd->VirtualAddress == 0){
+        printf("No Export Table!\n");
+        return 0;
+    }
+    //导出表的位置
+    /*
+    AddressOfFunctions      数量：NumberOfFunctions     导出函数地址表RVA
+    AddressOfNameOrdinals   数量：NumberOfNames         导出函数序号表RVA
+    AddressOfNames          数量：NumberOfNames         导出函数名称表RVA
+    */
+    pEd = (PIMAGE_EXPORT_DIRECTORY)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,pDd->VirtualAddress));
+    //返回NumberOfFunctions和NumberOfNames中最大的
+    DWORD max = pEd->NumberOfFunctions > pEd->NumberOfNames ? pEd->NumberOfFunctions:pEd->NumberOfNames;
+    printf("Max:%x\n",pEd->NumberOfFunctions);
+    printf("pEd->NumberOfNames:%x\n",pEd->NumberOfNames);
+    printf("pEd->NumberOfFunctions:%x\n",pEd->NumberOfFunctions);
+    //将AddressOfFunctions的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD aOf = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfFunctions));
+    //将AddressOfNameOrdinals的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置 该表中元素宽度为两字节
+    PWORD aOo = (PWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNameOrdinals));
+    //将AddressOfNames的RVA转成FOA 加上 FileBuffer 得到数组在文件中的位置
+    PDWORD aOn = (PDWORD)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer, pEd->AddressOfNames));
+
+    printf("pEd Size:%x\n",pDd->Size);
+    DWORD exportSize = 0;
+    //AddressOfFunctions的大小 = NumberOfFunctions*4
+    exportSize += (pEd->NumberOfFunctions * 4);
+    printf("pEd->NumberOfFunctions:%x\n",pEd->NumberOfFunctions);
+    printf("AddressOfFunctions Size:%x\n",pEd->NumberOfFunctions * 4);
+    //AddressOfNameOrdinals的大小 = NumberOfNames * 2
+    exportSize += (pEd->NumberOfNames * 2);
+    printf("AddressOfNameOrdinals Size:%x\n",pEd->NumberOfNames * 2);
+    //AddressOfNames的大小 = NumberOfNames * 4
+    exportSize += (pEd->NumberOfNames * 4);
+    printf("AddressOfNames Size:%x\n",pEd->NumberOfNames * 4);
+    
+    //计算所有名字的大小
+    for (size_t i = 0; i < pEd->NumberOfNames; i++)
+    {
+        DWORD relnamesize = strlen((PSTR)((DWORD64)FileBuffer + RvaToFileOffset(FileBuffer,aOn[i])));
+        //加上1是因为strlen不会计算字符串结束位置的“\0”
+        exportSize += (relnamesize + 1);
+    }
+    exportSize += sizeof(IMAGE_EXPORT_DIRECTORY);
+    
+    free(FileBuffer);
+    return exportSize;
+}
+
 //移动导出表
 void Movexport(){
 
@@ -1175,7 +1277,7 @@ void MovRel(){
     free(FileBuffer);
 }
 
-int fun(){
+int TestCopyFile(){
     LPVOID FileBuffer = NULL;//FileBuffer
     LPVOID ImageBuffer = NULL;//ImageBuffer
     LPVOID NewBuffer = NULL;//NewBuffer
@@ -1216,47 +1318,34 @@ int fun(){
     return 0;
 }
 
-DWORD Test(){
-    LPVOID FileBuffer = NULL;//FileBuffer
-    // LPVOID ImageBuffer = NULL;//ImageBuffer
-    // LPVOID NewBuffer = NULL;//NewBuffer
+void TestRvatoFoa(){
+    void* FileBuffer = NULL;
+    char* name = "D:\\justdo\\A\\fg.exe";
+    ReadPEFile(name,&FileBuffer);
+    DWORD FOA = RvaToFileOffset(FileBuffer,0x1e09b);
+    int* ptr =(int*)(FileBuffer + FOA);
+    printf("%x\n",*ptr);
+    printf("%x\n",FOA);
+}
 
-    //文件路径
-    // LPSTR FilePath ="E:\\User\\Documents\\learn\\vs_learn\\C_Test\\word_test\\testod.exe";
-    LPSTR FilePath ="D:\\justdo\\A\\websockets.dll";
-
-    //返回的文件大小
-    DWORD FileSize;
-    // DWORD FileCopySize;
-    // DWORD NewBufferCopySize;
-    // DWORD WriteSize;
-    printf("*********************************************************\n");
-    printf("ReadPEFile:\n");
-    FileSize = ReadPEFile(FilePath,&FileBuffer);
-    printf("Writed file to buffer %d betys\n",FileSize);
-    printf("*********************************************************\n");
-
-
-    DWORD RAV =0x2378e0;
-    DWORD FOA;
-    FOA = RvaToFileOffset(FileBuffer,RAV);
-    printf("FOA: %x",FOA);
-    free(FileBuffer);
-
+void Testsimple(){
+    int a = calcExportsize();
+    printf("%d\n",a);
 }
 
 int main(int argc, char const *argv[])
 {
-    // fun();
-    // Test();
+    Testsimple();
     // AddShellCode();
     // AddSection();
     // DelDosStub();
     // ExpandSection();
     // MergeSection();
     // PrintOutDes();
-    PrintRelocatingDes();
+    // PrintRelocatingDes();
+    // calcExportsize();
     // Movexport();
     // MovRel();
+    // TestRvatoFoa();
     return 0;
 }
