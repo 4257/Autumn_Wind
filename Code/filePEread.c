@@ -1611,18 +1611,6 @@ void TestRvatoFoa(){
     printf("%x\n",FOA);
 }
 
-void Testsimple(){
-    void* file = NULL;
-    char* tempname = "_ODBG_Plugininit";
-    int ord = 9;
-    char* filepath = "D:\\justdo\\A\\cearkTest\\BOOKMARK.DLL";
-    ReadPEFile(filepath,&file);
-    // DWORD aa = GetFunAddrByName(file,tempname);
-    DWORD aa = GetFunAddrByOrdi(file,ord);
-    printf("%x",aa);
-    free(file);
-}
-
 int main(int argc, char const *argv[])
 {
     // Testsimple();
