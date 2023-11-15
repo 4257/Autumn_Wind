@@ -133,3 +133,9 @@ public String pathParam2(@PathVariable Integer id, @PathVariable String name){
     return "OK";
 }
 ```
+# 响应数据
+使用方法注解 或者类注解的方式 将方法返回值直接响应 如果返回值类型是 实体对象/集合 将会转换为JSON格式响应  
+@RestController = @Controller + @ResponseBody;  
+## 统一响应结果
+
+
