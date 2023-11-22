@@ -1,4 +1,4 @@
-![image](https://github.com/4257/Autumn_Wind/assets/49188843/759b3e35-6fa5-4900-aa78-d9c3be22c99f)# 请求参数
+# 请求参数
 ## 简单参数
 ### 原始方式
 在原始的web程序中，获取请求参数，需要通过`HttpServletRequest`对象手动获取
