@@ -1,4 +1,4 @@
-# 请求参数
+![image](https://github.com/4257/Autumn_Wind/assets/49188843/759b3e35-6fa5-4900-aa78-d9c3be22c99f)# 请求参数
 ## 简单参数
 ### 原始方式
 在原始的web程序中，获取请求参数，需要通过`HttpServletRequest`对象手动获取
@@ -138,4 +138,36 @@ public String pathParam2(@PathVariable Integer id, @PathVariable String name){
 @RestController = @Controller + @ResponseBody;  
 ## 统一响应结果
 
+## 分层解耦
+controller：控制层 接收前端发送的请求 对请求进行处理 并响应数据  
+service：业务逻辑层 处理具体的业务逻辑  
+dao：数据访问层(Data Access Object)（持久层） 负责数据访问操作 包括数据的增 删 改 查   
 
+控制反转： Inversion Of Control 简称IOC 对象的创建控制权由程序自身转移到外部（容器）这种思想称为控制反转  
+依赖注入： Dependency Injection 简称DI 容器为应用程序提供运行时，所依赖的资源，称之为依赖注入  
+Bean对象：IOC容器中创建 管理的对象 称之为bean  
+### IOC
+```
+@Component        声明bean的基础注解        不属于以下三类时，用此注解
+@Controller       @Component的衍生注解      标注在控制器类上
+@Service          @Component的衍生注解      标注在控制器类上
+@Repository       @Component的衍生注解      标注在数据访问类上（由于与mybatis整合，用的少）
+
+声明bean的时候，可以通过value属性指定bean的名字，如果没有指定，默认为类名首字母小写。
+使用以上四个注解都可以声明bean，但是在springboot集成web开发中，声明控制器bean只能用@Controller
+
+前面声明bean的四大注解，要想生效，还需要被组件扫描注解@ComponentScan扫描。
+@ComponentScan注解虽然没有显式配置，但是实际上已经包含在了启动类声明注解
+@SpringBootApplication 中，默认扫描的范围是启动类所在包及其子包。
+```
+### DI
+```
+@Autowired：默认按照类型自动装配。
+如果同类型的bean存在多个：
+@Primary
+@Autowired + @Qualifier("bean的名称")
+@Resource(name="bean的名称")
+
+@Autowired 是spring框架提供的注解，而@Resource是JDK提供的注解。
+@Autowired 默认是按照类型注入，而@Resource默认是按照名称注入。
+```
